@@ -57,6 +57,8 @@
       color: #e6edf3;
     }
     .btn-secondary:hover { background: #30363d; }
+    .btn-purple { background: linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%); color: #fff; }
+    .btn-purple:hover { opacity: 0.9; }
     .divider { height: 1px; background: #30363d; margin: 24px 0; }
     .info { font-size: 12px; color: #8b949e; }
     .info a { color: #58a6ff; text-decoration: none; }
@@ -72,6 +74,25 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .hidden { display: none; }
+    .ide-info {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 20px 0;
+      text-align: left;
+    }
+    .ide-info-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #58a6ff;
+      margin-bottom: 8px;
+    }
+    .ide-info-text {
+      font-size: 12px;
+      color: #8b949e;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -81,6 +102,42 @@
     <p class="subtitle">Please wait while we complete your authentication.</p>
   </div>
 
+  <!-- NEW: Success state for device code flow (works with all IDEs) -->
+  <div class="container hidden" id="successStateDevice">
+    <div class="success-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+    <h1 class="title">You're all set!</h1>
+    <p class="subtitle">
+      Your account is ready.<br/>
+      You can now close this tab and return to your IDE.
+    </p>
+
+    <div class="ide-info">
+      <div class="ide-info-title">✨ What happens next?</div>
+      <div class="ide-info-text">
+        Your IDE will automatically detect the login and sign you in.
+        No need to click anything - just go back to your editor!
+      </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="window.close()">
+      Close this tab
+    </button>
+    <a href="https://codelessai.dev/dashboard" class="btn btn-purple" target="_blank">
+      Go to Dashboard
+    </a>
+
+    <div class="divider"></div>
+
+    <p class="info">
+      Works with VS Code, Cursor, Windsurf, and other VS Code-based IDEs
+    </p>
+  </div>
+
+  <!-- Legacy: Success state for direct VS Code redirect (fallback) -->
   <div class="container hidden" id="successState">
     <div class="success-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -92,16 +149,16 @@
       Your account is ready.<br/>
       Click below to open VS Code and start coding with CodelessAI.
     </p>
-    
+
     <a href="#" class="btn btn-primary" id="openVscode">
       Open VS Code
     </a>
     <button class="btn btn-secondary" onclick="window.close()">
       Close this tab
     </button>
-    
+
     <div class="divider"></div>
-    
+
     <p class="info">
       VS Code not opening? <a href="#" id="manualLink">Copy the link</a>
     </p>
@@ -146,12 +203,14 @@
   <script>
     const SUPABASE_URL = 'https://sizwtijdyjnamnppcwyy.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpend0aWpkeWpuYW1ucHBjd3l5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3MTAwNTIsImV4cCI6MjA4MDI4NjA1Mn0.q64OGNZ6pwpRurZST9Vu0RlKhqGSKhLmoc1Hdto5XGI';
-    
+    const DEVICE_AUTH_URL = 'https://sizwtijdyjnamnppcwyy.supabase.co/functions/v1/device-auth';
+
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     function showState(stateId) {
-      ['loadingState', 'successState', 'pendingState', 'errorState'].forEach(id => {
-        document.getElementById(id).classList.toggle('hidden', id !== stateId);
+      ['loadingState', 'successState', 'successStateDevice', 'pendingState', 'errorState'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('hidden', id !== stateId);
       });
     }
 
@@ -168,15 +227,43 @@
       return 'vscode://codelessai.codeless-ai/auth?' + params.toString();
     }
 
+    // Complete device auth - store tokens in database for extension to poll
+    async function completeDeviceAuth(deviceCode, accessToken, refreshToken, userId) {
+      try {
+        const response = await fetch(`${DEVICE_AUTH_URL}?action=complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            device_code: deviceCode,
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            user_id: userId,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Failed to complete device auth');
+        }
+
+        return true;
+      } catch (err) {
+        console.error('Device auth completion error:', err);
+        return false;
+      }
+    }
+
     async function handleAuth() {
-      // Check URL parameters first (from email/password login)
       const urlParams = new URLSearchParams(window.location.search);
-      
+
       // Check for confirmation pending
       if (urlParams.get('confirmation') === 'pending') {
         showState('pendingState');
         return;
       }
+
+      // Check for device_code - this means we're using the new polling flow
+      const deviceCode = urlParams.get('device_code');
 
       // Check for tokens in URL params (from our login page)
       let accessToken = urlParams.get('access_token');
@@ -187,7 +274,7 @@
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         accessToken = hashParams.get('access_token');
         refreshToken = hashParams.get('refresh_token');
-        
+
         // Also check for error in hash
         const error = hashParams.get('error_description') || hashParams.get('error');
         if (error) {
@@ -196,7 +283,7 @@
         }
       }
 
-      // If we have tokens, set session and redirect to VS Code
+      // If we have tokens, handle authentication
       if (accessToken) {
         try {
           // Verify the session is valid
@@ -207,8 +294,21 @@
 
           if (error) throw error;
 
+          const userId = data.user?.id;
+
+          // NEW: If we have a device_code, use the polling flow (works with all IDEs)
+          if (deviceCode) {
+            const completed = await completeDeviceAuth(deviceCode, accessToken, refreshToken, userId);
+            if (completed) {
+              showState('successStateDevice');
+              return;
+            }
+            // If device auth failed, fall back to VS Code redirect
+          }
+
+          // Legacy: Direct VS Code redirect (only works in VS Code)
           const vscodeUrl = buildVscodeUrl(accessToken, refreshToken);
-          
+
           document.getElementById('openVscode').href = vscodeUrl;
           document.getElementById('manualLink').onclick = (e) => {
             e.preventDefault();
@@ -229,8 +329,20 @@
       } else {
         // Check if we have an active session (might be from page reload)
         const { data: { session } } = await supabase.auth.getSession();
-        
+
         if (session) {
+          const userId = session.user?.id;
+
+          // NEW: If we have a device_code, use the polling flow
+          if (deviceCode) {
+            const completed = await completeDeviceAuth(deviceCode, session.access_token, session.refresh_token, userId);
+            if (completed) {
+              showState('successStateDevice');
+              return;
+            }
+          }
+
+          // Legacy: Direct VS Code redirect
           const vscodeUrl = buildVscodeUrl(session.access_token, session.refresh_token);
           document.getElementById('openVscode').href = vscodeUrl;
           document.getElementById('manualLink').onclick = (e) => {
@@ -239,7 +351,7 @@
             alert('Link copied to clipboard!');
           };
           showState('successState');
-          
+
           setTimeout(() => {
             window.location.href = vscodeUrl;
           }, 1000);
