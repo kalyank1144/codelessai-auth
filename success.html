@@ -230,9 +230,14 @@
     // Complete device auth - store tokens in database for extension to poll
     async function completeDeviceAuth(deviceCode, accessToken, refreshToken, userId) {
       try {
+        console.log('[DeviceAuth] Completing auth for device_code:', deviceCode);
         const response = await fetch(`${DEVICE_AUTH_URL}?action=complete`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
           body: JSON.stringify({
             device_code: deviceCode,
             access_token: accessToken,
@@ -243,12 +248,14 @@
 
         if (!response.ok) {
           const error = await response.json();
+          console.error('[DeviceAuth] Error response:', error);
           throw new Error(error.message || 'Failed to complete device auth');
         }
 
+        console.log('[DeviceAuth] Successfully completed device auth');
         return true;
       } catch (err) {
-        console.error('Device auth completion error:', err);
+        console.error('[DeviceAuth] Completion error:', err);
         return false;
       }
     }
