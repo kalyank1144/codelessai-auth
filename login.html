@@ -191,7 +191,7 @@
       setLoading(true);
 
       // Build redirect URL with device_code if present
-      let redirectUrl = window.location.origin + '/auth/success.html';
+      let redirectUrl = window.location.origin + '/success.html';
       if (deviceCode) {
         redirectUrl += '?device_code=' + encodeURIComponent(deviceCode);
       }
