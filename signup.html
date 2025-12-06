@@ -193,7 +193,7 @@
 
       const name = document.getElementById('name').value;
       const email = document.getElementById('email').value;
-      const password = document.getEmentById('password').value;
+      const password = document.getElementById('password').value;
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -225,7 +225,7 @@
       setLoading(true);
 
       // Build redirect URL with device_code if present
-      let redirectUrl = window.location.origin + '/auth/success.html';
+      let redirectUrl = window.location.origin + '/success.html';
       if (deviceCode) {
         redirectUrl += '?device_code=' + encodeURIComponent(deviceCode);
       }
